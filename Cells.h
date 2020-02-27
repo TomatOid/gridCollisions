@@ -6,7 +6,6 @@
 typedef struct LlElem
 {
     struct Collider* obj;
-    Box hitBox;
     struct LlElem* next;
 } LlElem;
 
@@ -17,6 +16,7 @@ typedef struct Collider
     Box hitbox;
     void* sprite;
     struct LlElem* memPool;
+    int memMax;
     int index; // remember to reset this every update
 } Collider;
 
