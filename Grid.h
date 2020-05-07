@@ -19,6 +19,6 @@ Grid* makeGrid(int width, int height, double cellSize);
 Collider* makeCollider(Box hitbox, Grid* mainGrid, void* sprite);
 void freeCollider(Collider* collider);
 void insertToGrid(Grid* grid, Collider* collider, int curr_update);
-int queryBox(Grid* grid, Box box, Collider** ret_array, hashTable* table, int MAX_SIZE, int curr_update, int htable_use);
+int queryBox(Grid* grid, Box box, Collider** ret_array, hashTable* table, int MAX_SIZE, int curr_update, int htable_use, int revx, int revy);
 
 #endif // GRID_H_INCLUDED

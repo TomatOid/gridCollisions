@@ -100,7 +100,7 @@ void insertToGrid(Grid* grid, Collider* collider, int curr_update)
     return;
 }
 
-int queryBox(Grid* grid, Box box, Collider** ret_array, hashTable* table, int MAX_SIZE, int curr_update, int htable_use)
+int queryBox(Grid* grid, Box box, Collider** ret_array, hashTable* table, int MAX_SIZE, int curr_update, int htable_use, int revx, int revy)
 {
     // we will find the floor of top left and ceiling of bottom right corners after converting to grid space
     int LX = floor(box.X0 / grid->cell_size);
@@ -120,7 +120,7 @@ int queryBox(Grid* grid, Box box, Collider** ret_array, hashTable* table, int MA
     {
         for (int j = TY; j < BY; j++)
         {
-            cellij = (grid->cells + i * grid->height + j);
+            cellij = (grid->cells + ((revx ? RX - i + LX - 1 : i) * grid->height + (revy ? BY - j + TY - 1 : j)));
             if ((!cellij->entry) || (cellij->lastUpdate != curr_update)) { continue; }
             else
             {

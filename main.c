@@ -15,12 +15,15 @@ int NUM_BALLS = 500;
 // acceleration due to gravity
 double g = 2;
 // velocity loss per interaction, multiplicitive
-double eff = 0.9;
+double eff = 1;
 double vthresh = 0;
 double bSize = 10;
-const int CYCLES_PER_FRAME = 2;
-const int DO_DEBUG = 0;
-const int DO_ARROWS = 0;
+double tick_prob = 0.05;
+int CYCLES_PER_FRAME = 2;
+int MAX_PHOTONS = 30;
+int DO_DEBUG = 0;
+int DO_ARROWS = 0;
+int DO_UNEQUAL = 0;
 const int XRES = 720;
 const int YRES = 720;
 
@@ -35,6 +38,12 @@ typedef struct Ball
     double vy;
     double m;
 } Ball;
+
+typedef struct
+{
+    double x, y, vx, vy, mag;
+    int isAlive;
+} Photon;
 
 void makeBall(double r, double cx, double cy, double vx, double vy, double m, Ball* addr, Ball* buff)
 {
@@ -75,6 +84,7 @@ void drawBall(Ball* ball, SDL_Renderer* ren)
     double tailx = cx + ball->vx;
     double taily = cy + ball->vy;
     double mag = sqrt(ball->vx * ball->vx + ball->vy * ball->vy);
+    if (mag == 0.0f) return;
     double cosx = ball->vx / mag;
     double sinx = ball->vy / mag;
     double arrs = sqrt(mag);
@@ -85,7 +95,7 @@ void drawBall(Ball* ball, SDL_Renderer* ren)
 }
 
 /* Ball a will be mutated, and should not point to the buffer, b is in the buffer */
-void ballCollide(Ball* a, Ball* b)
+int ballCollide(Ball* a, Ball* b)
 {
     double deltax = a->cx - b->cx;
     double deltay = a->cy - b->cy;
@@ -101,7 +111,9 @@ void ballCollide(Ball* a, Ball* b)
         double mul = (2 * b->m * vdotdisp) / ((a->m + b->m) * dsquared);
         a->vx -= mul * deltax * eff;
         a->vy -= mul * deltay * eff;
+        return 1;
     }
+    else { return 0; }
 }
 
 /* pick a random double from a to b */
@@ -112,6 +124,7 @@ double randi(double a, double b)
 
 Ball* objects;
 Ball* buf;
+Photon* photons;
 Collider** ret;
 Uint32 startTime = 0;
 Uint32 endTime = 0;
@@ -120,13 +133,34 @@ int htable_use = 0;
 
 int main(int argc, char* argv[])
 {
+    // Argument parsing
     if (argc > 3)
     {
         // the first argument determines the number of sprites,
         // the second determines the gravity acceleration
         NUM_BALLS = atoi(argv[1]);
+        if (NUM_BALLS < 0) { printf("NUM_BALLS cannot be negitive, abort!\n"); return -1; }
         g = atof(argv[2]);
         bSize = atof(argv[3]);
+        if (argc > 4)
+        {
+            for (int i = 4; i < argc; i++)
+            {
+                if (strcmp(argv[i], "-a") == 0) { DO_ARROWS = 1; }
+                else if (strcmp(argv[i], "-d") == 0) { DO_DEBUG = 1; }
+                else if (strcmp(argv[i], "-u") == 0) { DO_UNEQUAL = 1; }
+                else if (strncmp(argv[i], "-c", 2) == 0)
+                {
+                    int t = atoi(argv[i] + 2);
+                    if (t > 0) { CYCLES_PER_FRAME = t; }
+                }
+                else if (strncmp(argv[i], "-e", 2) == 0)
+                {
+                    float f = atof(argv[i] + 2);
+                    if (f >= 0 && f <= 1) { eff = f; }
+                }
+            }
+        }
     }
     printf("bSize: %f\n", bSize);
     fflush(stdout);
@@ -152,8 +186,8 @@ int main(int argc, char* argv[])
     ret = calloc(NUM_BALLS, sizeof(Collider*));
     // initialize the hash table
     hashTable* hTable = malloc(sizeof(hashTable));
-    hTable->items = calloc(NUM_BALLS, sizeof(hashItem));
-    hTable->len = NUM_BALLS;
+    hTable->items = calloc(NUM_BALLS * 4 + 1, sizeof(hashItem));
+    hTable->len = NUM_BALLS * 4 + 1;
 
     for (int i = 0; i < NUM_BALLS; i++)
     {
@@ -162,7 +196,7 @@ int main(int argc, char* argv[])
 	    // but it'll be fine, right?
         double r = randi(0.9 * bSize, bSize);
         makeBall(r, randi(r, XRES - r), randi(r, YRES - r), randi(-10, 10), randi(-10, 10), r, &objects[i], &buf[i]);
-        if (objects[i].cx < XRES / 2) { objects[i].vx *= 2; objects[i].vy *= 2; }
+        if (DO_UNEQUAL && (objects[i].cx < XRES / 2)) { objects[i].vx *= 3; objects[i].vy *= 3; }
         insertToGrid(mainGrid, objects[i].collide2d, curr_update);
     }
 	// The
@@ -182,6 +216,23 @@ int main(int argc, char* argv[])
         // copy to the buffer, which is acts as a static backup used when checking collisions,
         // and is pointed to in each collider
         memcpy(buf, objects, NUM_BALLS * sizeof(Ball));
+        
+        // now, if debugging, and it is a draw cycle, draw the grid
+        if (DO_DEBUG && (curr_update + 1) % CYCLES_PER_FRAME == 0)
+        {
+            SDL_SetRenderDrawColor(ren, 12, 32, 89, 0);
+            bb->w = csize;
+            bb->h = csize;
+            for (bb->x = 0; bb->x < XRES; bb->x += csize)
+            {
+                for (bb->y = 0; bb->y < YRES; bb->y += csize)
+                {
+                    SDL_RenderDrawRect(ren, bb);
+                }
+            }
+        }
+
+        // collision loop
         for (int i = 0; i < NUM_BALLS; i++)
         {
             objects[i].isColliding = 0;
@@ -196,9 +247,9 @@ int main(int argc, char* argv[])
 
             // search for the other colliders (in buf) which are near this
             // collider's hitbox, and put them in ret
-            int nresults = queryBox(mainGrid, objects[i].collide2d->hitbox, ret, hTable, NUM_BALLS, curr_update, htable_use);
+            int nresults = queryBox(mainGrid, objects[i].collide2d->hitbox, ret, hTable, NUM_BALLS, curr_update, htable_use, rand() % 2, 0);
 
-            if (DO_DEBUG)
+            if (DO_DEBUG && 0)
             {
                 // print how many colliders were returned
                 printf("%d ", nresults);
@@ -206,12 +257,18 @@ int main(int argc, char* argv[])
             }
 
             // now, handle the physics for each collision by looping over returned values
+            int r = rand() % 2;
             for (int j = 0; j < nresults; j++)
             {
                 // set object[i]'s velocity according to elastic collision
-                ballCollide(&objects[i], ret[j]->sprite);
-
-                if (DO_DEBUG && (curr_update + 1) % CYCLES_PER_FRAME == 0)
+                if (r) ballCollide(&objects[i], ret[j]->sprite);
+                else ballCollide(&objects[i], ret[nresults - j - 1]->sprite);
+                if (DO_DEBUG)
+                {
+                    SDL_SetRenderDrawColor(ren, 255, 255, 255, 0);
+                    SDL_RenderDrawLine(ren, objects[i].cx, objects[i].cy, ((Ball*)ret[j]->sprite)->cx, ((Ball*)ret[j]->sprite)->cy);
+                }
+                if (DO_DEBUG && (curr_update + 1) % CYCLES_PER_FRAME == 0 && 0)
                 {
                     // draw a bounding box around the sprite
                     SDL_SetRenderDrawColor(ren, 255, 255, 255, 0);
@@ -221,17 +278,15 @@ int main(int argc, char* argv[])
                     bb->h = ret[j]->hitbox.Y1 - bb->y;
                     SDL_RenderDrawRect(ren, bb);
                 }
-
-
             }
 
             // bounce off the walls
             int w, h;
             Box hit = objects[i].collide2d->hitbox;
             SDL_GetWindowSize(win, &w, &h);
-            if (hit.X0 < 0 && objects[i].vx < 0) { objects[i].vx *= -eff; objects[i].vy *= eff; objects[i].isColliding = 1; }
-            if (hit.X1 > w && objects[i].vx > 0) { objects[i].vx *= -eff; objects[i].vy *= eff; objects[i].isColliding = 1; }
-            if (hit.Y0 < 0 && objects[i].vy < 0) { objects[i].vy *= -eff; objects[i].vx *= eff; objects[i].isColliding = 1; }
+            if (hit.X0 < 0 && objects[i].vx < 0) { objects[i].vx *= -eff; objects[i].vy *= eff;  }
+            if (hit.X1 > w && objects[i].vx > 0) { objects[i].vx *= -eff; objects[i].vy *= eff;  }
+            if (hit.Y0 < 0 && objects[i].vy < 0) { objects[i].vy *= -eff; objects[i].vx *= eff;  }
             if (hit.Y1 > h && objects[i].vy > 0) { objects[i].vy *= -eff; objects[i].vx *= eff; objects[i].isColliding = 1; }
             // do gravity if not colliding
             if (!objects[i].isColliding) { objects[i].vy += g * deltat; }
@@ -241,14 +296,7 @@ int main(int argc, char* argv[])
 
         for (int i = 0; i < NUM_BALLS; i++)
         {
-            // before we do anything, we must check that our objects have not been corrupted
-
-            if (objects[i].collide2d != buf[i].collide2d)
-            {
-                printf("Corruption detected at index %d", i);
-                break;
-            }
-
+            // calculate the position step
             double dx = objects[i].vx * deltat;
             double dy = objects[i].vy * deltat;
 
@@ -268,11 +316,16 @@ int main(int argc, char* argv[])
             // part of the purpose of this demo is to visualize
             // energy transfer using colors, where more red means
             // more energy, and more green means less energy
-            double energy = 0.001 * objects[i].m * (objects[i].vx * objects[i].vx + objects[i].vy * objects[i].vy);
-            // using the sigmoid function to limit sig to a range of 0 - 255
-            int sig = floor(255 - 255 / (1 + energy + energy * energy / 2));
+            double energy = 0.01 * objects[i].m / bSize * (objects[i].vx * objects[i].vx + objects[i].vy * objects[i].vy);
+            // using the sigmoid function to limit sig to a range of 0 - 1
+            float sig = 1 - 1 / (1 + energy + energy * energy / 2);
+            // now adjust the hue according to sig
+            float colormin = 46;
+            float colormax = 234;
+            int r = (int)((sig > 0.5) ? colormax : colormin + (colormax - colormin) * 2 * sig);
+            int g = (int)((sig < 0.5) ? colormax : colormin - (colormax - colormin) * 2 * (sig - 1));
 
-            SDL_SetRenderDrawColor(ren, (Uint8)(sig / 4) + 64 * 3, (Uint8)(sig / 4) + 64 * 3, (255 - sig) / 2, 0);
+            SDL_SetRenderDrawColor(ren, r, g, 26, 0);
 
             // draw the ball
             if (curr_update % CYCLES_PER_FRAME == 0 ) { drawBall(objects + i, ren); }
