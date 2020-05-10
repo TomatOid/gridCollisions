@@ -6,8 +6,8 @@ void insertHashItem(hashTable* table, intptr_t value, int update)
     int mod = table->len;
     int i = value % mod;
     while (table->items[i % mod].value && (table->items[i % mod].updateCount == update) && i < (2 * mod)) { i++; } // increment untill there is a free space
-    table->items[i].value = value;
-    table->items[i].updateCount = update;
+    table->items[i % mod].value = value;
+    table->items[i % mod].updateCount = update;
     table->num++;
 }
 

@@ -50,7 +50,7 @@ void freeCollider(Collider* collider)
     free(collider);
 }
 
-void insertToGrid(Grid* grid, Collider* collider, int curr_update)
+void insertToGrid(Grid* grid, Collider* collider, uint32_t curr_update)
 {
     if (!grid->cell_size) { return; }
     // we will find the floor of top left and ceiling of bottom right corners after converting to grid space
@@ -100,7 +100,7 @@ void insertToGrid(Grid* grid, Collider* collider, int curr_update)
     return;
 }
 
-int queryBox(Grid* grid, Box box, Collider** ret_array, hashTable* table, int MAX_SIZE, int curr_update, int htable_use, int revx, int revy)
+int queryBox(Grid* grid, Box box, Collider** ret_array, hashTable* table, int MAX_SIZE, uint32_t curr_update, uint32_t htable_use, int revx, int revy)
 {
     // we will find the floor of top left and ceiling of bottom right corners after converting to grid space
     int LX = floor(box.X0 / grid->cell_size);
