@@ -21,7 +21,6 @@ double vthresh = 0;
 double bSize = 10;
 double tick_prob = 0.05;
 int CYCLES_PER_FRAME = 2;
-int MAX_PHOTONS = 30;
 int DO_DEBUG = 0;
 int DO_ARROWS = 0;
 int DO_UNEQUAL = 0;
@@ -40,12 +39,6 @@ typedef struct Ball
     double vy;
     double m;
 } Ball;
-
-typedef struct
-{
-    double x, y, vx, vy, mag;
-    int isAlive;
-} Photon;
 
 void makeBall(double r, double cx, double cy, double vx, double vy, double m, Ball* addr, Ball* buff)
 {
@@ -126,7 +119,6 @@ double randi(double a, double b)
 
 Ball* objects;
 Ball* buf;
-Photon* photons;
 Collider** ret;
 Uint32 startTime = 0;
 Uint32 endTime = 0;
@@ -367,23 +359,25 @@ int main(int argc, char* argv[])
 
             // re-insert this sprite into the grid
             insertToGrid(mainGrid, objects[i].collide2d, curr_update);
+            if (curr_update % CYCLES_PER_FRAME == 0 )
+            {
+                // part of the purpose of this demo is to visualize
+                // energy transfer using colors, where more red means
+                // more energy, and more green means less energy
+                double energy = 0.01 * objects[i].m / bSize * (objects[i].vx * objects[i].vx + objects[i].vy * objects[i].vy);
+                // using a squishification function to limit sig to a range of 0 - 1
+                float sig = 1 - 1 / (1 + energy + energy * energy / 2);
+                // now adjust the hue according to sig
+                float colormin = 46;
+                float colormax = 234;
+                int r = (int)((sig > 0.5) ? colormax : colormin + (colormax - colormin) * 2 * sig);
+                int g = (int)((sig < 0.5) ? colormax : colormin - (colormax - colormin) * 2 * (sig - 1));
 
-            // part of the purpose of this demo is to visualize
-            // energy transfer using colors, where more red means
-            // more energy, and more green means less energy
-            double energy = 0.01 * objects[i].m / bSize * (objects[i].vx * objects[i].vx + objects[i].vy * objects[i].vy);
-            // using a squishification function to limit sig to a range of 0 - 1
-            float sig = 1 - 1 / (1 + energy + energy * energy / 2);
-            // now adjust the hue according to sig
-            float colormin = 46;
-            float colormax = 234;
-            int r = (int)((sig > 0.5) ? colormax : colormin + (colormax - colormin) * 2 * sig);
-            int g = (int)((sig < 0.5) ? colormax : colormin - (colormax - colormin) * 2 * (sig - 1));
+                SDL_SetRenderDrawColor(ren, r, g, 26, 255);
 
-            SDL_SetRenderDrawColor(ren, r, g, 26, 255);
-
-            // draw the ball
-            if (curr_update % CYCLES_PER_FRAME == 0 ) { drawBall(objects + i, ren); }
+                // draw the ball
+                drawBall(objects + i, ren);
+            }
         }
         // clear the hash table to make me feel better
         memset(hTable->items, 0, hTable->len * sizeof(hashItem));
