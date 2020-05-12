@@ -19,7 +19,6 @@ double g = 2;
 double eff = 1;
 double vthresh = 0;
 double bSize = 10;
-double tick_prob = 0.05;
 int CYCLES_PER_FRAME = 2;
 int DO_DEBUG = 0;
 int DO_ARROWS = 0;
@@ -244,7 +243,7 @@ int main(int argc, char* argv[])
         // now, if debugging, and it is a draw cycle, draw the grid
         if (DO_DEBUG && (curr_update + 1) % CYCLES_PER_FRAME == 0)
         {
-            SDL_SetRenderDrawColor(ren, 12, 32, 89, 0);
+            SDL_SetRenderDrawColor(ren, 12, 32, 89, 255);
             bb->w = csize;
             bb->h = csize;
             for (bb->x = 0; bb->x < XRES; bb->x += csize)
@@ -310,9 +309,9 @@ int main(int argc, char* argv[])
                 // set object[i]'s velocity according to elastic collision
                 if (r) ballCollide(&objects[i], ret[j]->sprite);
                 else ballCollide(&objects[i], ret[nresults - j - 1]->sprite);
-                if (DO_DEBUG)
+                if (DO_DEBUG && (curr_update + 1) % CYCLES_PER_FRAME == 0)
                 {
-                    SDL_SetRenderDrawColor(ren, 255, 255, 255, 0);
+                    SDL_SetRenderDrawColor(ren, 255, 255, 255, 255);
                     SDL_RenderDrawLine(ren, objects[i].cx, objects[i].cy, ((Ball*)ret[j]->sprite)->cx, ((Ball*)ret[j]->sprite)->cy);
                 }
                 if (DO_DEBUG && (curr_update + 1) % CYCLES_PER_FRAME == 0 && 0)
