@@ -25,12 +25,14 @@ int DO_DEBUG = 0;
 int DO_ARROWS = 0;
 int DO_UNEQUAL = 0;
 int OPACITY = 255;
+int MAX_FPS = 30;
 const int XRES = 720;
 const int YRES = 720;
 
 typedef struct Ball
 {
     Collider* collide2d;
+    SDL_Texture* texture;
     int isColliding;
     double r;
     double cx;
@@ -89,6 +91,32 @@ void drawBall(Ball* ball, SDL_Renderer* ren)
     SDL_RenderDrawLine(ren, tailx, taily, tailx + (-arrs) * cosx + arrs * sinx, taily + (-arrs) * sinx - arrs * cosx);
 }
 
+int makeBallTex(Ball* ball, SDL_Renderer* ren)
+{
+    // calculate the center pixel of the texture
+    int cx = ceil(ball->r);
+    int cy = cx;
+    // initialize the texture
+    ball->texture = SDL_CreateTexture(ren, SDL_PIXELFORMAT_RGBA8888, SDL_TEXTUREACCESS_TARGET, 2 * cx, 2 * cy);
+    SDL_SetTextureBlendMode(ball->texture, SDL_BLENDMODE_BLEND);
+    SDL_SetRenderTarget(ren, ball->texture);
+    SDL_SetRenderDrawColor(ren, 0x00, 0x00, 0x00, 0x00);
+    SDL_RenderClear(ren);
+    SDL_SetRenderDrawColor(ren, 0xff, 0xff, 0xff, 0xff);
+    for (int x = 0; x < 2 * cx; x++)
+    {
+        for (int y = 0; y < 2 * cy; y++)
+        {
+            // check if this point is within the circle
+            if ((x - cx) * (x - cx) + (y - cy) * (y - cy) < cx * cx)
+            {
+                SDL_RenderDrawPoint(ren, x, y);
+            }
+        }
+    }
+    SDL_SetRenderTarget(ren, NULL);
+    return 1;
+}
 /* Ball a will be mutated, and should not point to the buffer, b is in the buffer */
 int ballCollide(Ball* a, Ball* b)
 {
@@ -123,7 +151,7 @@ static Collider** ret;
 Uint32 startTime = 0;
 Uint32 endTime = 0;
 uint32_t curr_update = 0;
-static uint32_t htable_use = 0;
+static uint32_t htable_use;
 
 int main(int argc, char* argv[])
 {
@@ -193,6 +221,10 @@ int main(int argc, char* argv[])
     printf("csize: %d\n", csize);
     fflush(stdout);
 
+    // declare random seeds
+    static unsigned int randr_state;
+    #pragma omp threadprivate(randr_state)
+
     // make the grid so grid coords equal screen coords
     mainGrid = makeGrid(1 + (int)XRES / csize, 1 + (int)YRES / csize, (double)csize);
     // allocate the sprite memory, using calloc because debuging has made me paranoid
@@ -204,9 +236,11 @@ int main(int argc, char* argv[])
     // initialize the hash table
     static hashTable* hTable;
     #pragma omp threadprivate(hTable)
+    #pragma omp threadprivate(htable_use)
     #pragma omp parallel
     {
-        printf("Running a thread");
+        randr_state = 0xe7425723 ^ omp_get_thread_num();
+        htable_use = 0;
         hTable = malloc(sizeof(hashTable));
         hTable->items = calloc(NUM_BALLS * 4 + 1, sizeof(hashItem));
         hTable->len = NUM_BALLS * 4 + 1;
@@ -218,6 +252,7 @@ int main(int argc, char* argv[])
 	    // but it'll be fine, right?
         double r = randi(0.9 * bSize, bSize);
         makeBall(r, randi(r, XRES - r), randi(r, YRES - r), randi(-10, 10), randi(-10, 10), r, &objects[i], &buf[i]);
+        makeBallTex(&objects[i], ren);
         if (DO_UNEQUAL && (objects[i].cx < XRES / 2)) { objects[i].vx *= 3; objects[i].vy *= 3; }
         insertToGrid(mainGrid, objects[i].collide2d, curr_update);
     }
@@ -278,7 +313,6 @@ int main(int argc, char* argv[])
             int winaccelY = (winposY2 - 2 * winposY1 + winposY0) / (deltat * deltat);
             if (curr_update > 5 * CYCLES_PER_FRAME)
             {
-                #pragma omp parallel for
                 for (int i = 0; i < NUM_BALLS; i++)
                 {
                     objects[i].vx -= winaccelX * deltat / CYCLES_PER_FRAME;
@@ -303,7 +337,7 @@ int main(int argc, char* argv[])
 
             // search for the other colliders (in buf) which are near this
             // collider's hitbox, and put them in ret
-            int nresults = queryBox(mainGrid, objects[i].collide2d->hitbox, ret, hTable, NUM_BALLS, curr_update, htable_use, rand() % 2, 0);
+            int nresults = queryBox(mainGrid, objects[i].collide2d->hitbox, ret, hTable, NUM_BALLS, curr_update, htable_use, rand_r(&randr_state) % 2, 0);
 
             if (DO_DEBUG && 0)
             {
@@ -313,7 +347,8 @@ int main(int argc, char* argv[])
             }
 
             // now, handle the physics for each collision by looping over returned values
-            int r = rand() % 2;
+            int r = rand_r(&randr_state) % 2;
+            #pragma omp critical
             for (int j = 0; j < nresults; j++)
             {
                 // set object[i]'s velocity according to elastic collision
@@ -387,10 +422,11 @@ int main(int argc, char* argv[])
                 int r = (int)((sig > 0.5) ? colormax : colormin + (colormax - colormin) * 2 * sig);
                 int g = (int)((sig < 0.5) ? colormax : colormin - (colormax - colormin) * 2 * (sig - 1));
 
-                SDL_SetRenderDrawColor(ren, r, g, 26, 255);
-
                 // draw the ball
-                drawBall(objects + i, ren);
+                //drawBall(objects + i, ren);
+                SDL_SetTextureColorMod(objects[i].texture, r, g, 26);
+                SDL_Rect boundbox = { floor(objects[i].cx - objects[i].r), floor(objects[i].cy - objects[i].r), 2 * ceil(objects[i].r), 2 * ceil(objects[i].r) }; 
+                SDL_RenderCopy(ren, objects[i].texture, NULL, &boundbox);
             }
         }
         
@@ -402,8 +438,9 @@ int main(int argc, char* argv[])
             endTime = SDL_GetTicks();
             double dt = endTime - startTime;
             // limit framerate
-            if (dt < 20) { SDL_Delay(20 - dt); }
-            if (DO_DEBUG) printf("FPS: %f\n", 1000 / (double)(dt));
+            int milis = 1000 / MAX_FPS;
+            if (dt < milis) { SDL_Delay(milis - dt); }
+            if (DO_DEBUG) printf("FPS: %f\n", (dt < milis ? MAX_FPS : 1000.0 / (double)dt));
             startTime = SDL_GetTicks();
         }
     }
