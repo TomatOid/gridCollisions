@@ -3,6 +3,7 @@
 
 #include "AABB.h"
 #include <stdint.h>
+#include <omp.h>
 
 typedef struct LlElem
 {
@@ -26,6 +27,7 @@ typedef struct Collider
 
 typedef struct Cell
 {
+    omp_lock_t lck;
     LlElem* entry;
     /* this is to keep track of what cells are no longer up to date, and the entry will be treated as null if out of date */
     uint32_t lastUpdate;

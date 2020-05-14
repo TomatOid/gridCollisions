@@ -6,6 +6,7 @@
 #include <math.h>
 #include <stdint.h>
 #include <stdio.h>
+#include <omp.h>
 
 Grid* makeGrid(int width, int height, double cellSize)
 {
@@ -50,6 +51,7 @@ void freeCollider(Collider* collider)
     free(collider);
 }
 
+// in parallelizing this function, I am assuming that we are never concurrently running this function with the same collider
 void insertToGrid(Grid* grid, Collider* collider, uint32_t curr_update)
 {
     if (!grid->cell_size) { return; }
@@ -75,7 +77,7 @@ void insertToGrid(Grid* grid, Collider* collider, uint32_t curr_update)
             // this fixes the buffer overflow bug
             if (collider->index >= collider->memMax) return;
             cellij = (grid->cells + i * grid->height + j);
-
+            omp_set_lock(&cellij->lck);
             collider->memPool[collider->index].obj = collider;
             // possible candidate for the issues we're having
             if ((!cellij->entry) || cellij->lastUpdate != curr_update) // if there are no elements at the cell
@@ -93,7 +95,7 @@ void insertToGrid(Grid* grid, Collider* collider, uint32_t curr_update)
             }
             cellij->entry = &collider->memPool[collider->index];
             cellij->lastUpdate = curr_update;
-
+            omp_unset_lock(&cellij->lck);
             collider->index++;
         }
     }

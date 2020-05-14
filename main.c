@@ -7,6 +7,7 @@
 #include <SDL2/SDL_image.h>
 #include <SDL2/SDL_timer.h>
 #include <SDL2/SDL_image.h>
+#include <omp.h>
 #include "AABB.h"
 #include "Cells.h"
 #include "Grid.h"
@@ -118,11 +119,11 @@ double randi(double a, double b)
 
 Ball* objects;
 Ball* buf;
-Collider** ret;
+static Collider** ret;
 Uint32 startTime = 0;
 Uint32 endTime = 0;
 uint32_t curr_update = 0;
-uint32_t htable_use = 0;
+static uint32_t htable_use = 0;
 
 int main(int argc, char* argv[])
 {
@@ -197,12 +198,19 @@ int main(int argc, char* argv[])
     // allocate the sprite memory, using calloc because debuging has made me paranoid
     objects = calloc(NUM_BALLS, sizeof(Ball));
     buf = calloc(NUM_BALLS, sizeof(Ball));
+    #pragma omp threadprivate(ret)
+    #pragma omp parallel
     ret = calloc(NUM_BALLS, sizeof(Collider*));
     // initialize the hash table
-    hashTable* hTable = malloc(sizeof(hashTable));
-    hTable->items = calloc(NUM_BALLS * 4 + 1, sizeof(hashItem));
-    hTable->len = NUM_BALLS * 4 + 1;
-
+    static hashTable* hTable;
+    #pragma omp threadprivate(hTable)
+    #pragma omp parallel
+    {
+        printf("Running a thread");
+        hTable = malloc(sizeof(hashTable));
+        hTable->items = calloc(NUM_BALLS * 4 + 1, sizeof(hashItem));
+        hTable->len = NUM_BALLS * 4 + 1;
+    }
     for (int i = 0; i < NUM_BALLS; i++)
     {
 	    // Initalize the sprites on the heap at random positions
@@ -270,6 +278,7 @@ int main(int argc, char* argv[])
             int winaccelY = (winposY2 - 2 * winposY1 + winposY0) / (deltat * deltat);
             if (curr_update > 5 * CYCLES_PER_FRAME)
             {
+                #pragma omp parallel for
                 for (int i = 0; i < NUM_BALLS; i++)
                 {
                     objects[i].vx -= winaccelX * deltat / CYCLES_PER_FRAME;
@@ -279,6 +288,7 @@ int main(int argc, char* argv[])
         }
 
         // collision loop
+        #pragma omp parallel for
         for (int i = 0; i < NUM_BALLS; i++)
         {
             objects[i].isColliding = 0;
@@ -340,6 +350,7 @@ int main(int argc, char* argv[])
 
         curr_update++;
 
+        #pragma omp parallel for
         for (int i = 0; i < NUM_BALLS; i++)
         {
             // calculate the position step
@@ -358,7 +369,11 @@ int main(int argc, char* argv[])
 
             // re-insert this sprite into the grid
             insertToGrid(mainGrid, objects[i].collide2d, curr_update);
-            if (curr_update % CYCLES_PER_FRAME == 0 )
+        }
+
+        if (curr_update % CYCLES_PER_FRAME == 0 )
+        {
+            for (int i = 0; i < NUM_BALLS; i++)
             {
                 // part of the purpose of this demo is to visualize
                 // energy transfer using colors, where more red means
@@ -378,6 +393,7 @@ int main(int argc, char* argv[])
                 drawBall(objects + i, ren);
             }
         }
+        
         // clear the hash table to make me feel better
         memset(hTable->items, 0, hTable->len * sizeof(hashItem));
         if (curr_update % CYCLES_PER_FRAME == 0)
