@@ -20,9 +20,8 @@ double g = 2;
 double eff = 1;
 double vthresh = 0;
 double bSize = 10;
-int CYCLES_PER_FRAME = 2;
+int CYCLES_PER_FRAME = 3;
 int DO_DEBUG = 0;
-int DO_ARROWS = 0;
 int DO_UNEQUAL = 0;
 int OPACITY = 255;
 int MAX_FPS = 30;
@@ -58,54 +57,21 @@ void makeBall(double r, double cx, double cy, double vx, double vy, double m, Ba
     addr->m = m;
 }
 
-/* TODO: Fix this garbage. */
-void drawBall(Ball* ball, SDL_Renderer* ren)
-{
-    double cx = ball->cx;
-    double cy = ball->cy;
-    double r = ball->r;
-    double oldx = cx + r;
-    double oldy = cy;
-    double step = 6.283185307 / 12;
-    for (double i = 0; i <= 6.283185307; i += step)
-    {
-        double newx = cx + r * SDL_cos(i);
-        double newy = cy + r * SDL_sin(i);
-        SDL_RenderDrawLine(ren, newx, newy, oldx, oldy);
-        oldx = newx;
-        oldy = newy;
-    }
-    if (!DO_ARROWS) return;
-    // draw line for vector
-    SDL_SetRenderDrawColor(ren, 255, 10, 10, 128);
-    double tailx = cx + ball->vx;
-    double taily = cy + ball->vy;
-    double mag = sqrt(ball->vx * ball->vx + ball->vy * ball->vy);
-    if (mag == 0.0f) return;
-    double cosx = ball->vx / mag;
-    double sinx = ball->vy / mag;
-    double arrs = sqrt(mag);
-    SDL_RenderDrawLine(ren, cx, cy, tailx, taily);
-    // draw vector tail
-    SDL_RenderDrawLine(ren, tailx, taily, tailx + (-arrs) * cosx - arrs * sinx, taily + (-arrs) * sinx + arrs * cosx);
-    SDL_RenderDrawLine(ren, tailx, taily, tailx + (-arrs) * cosx + arrs * sinx, taily + (-arrs) * sinx - arrs * cosx);
-}
-
 int makeBallTex(Ball* ball, SDL_Renderer* ren)
 {
     // calculate the center pixel of the texture
     int cx = ceil(ball->r);
     int cy = cx;
     // initialize the texture
-    ball->texture = SDL_CreateTexture(ren, SDL_PIXELFORMAT_RGBA8888, SDL_TEXTUREACCESS_TARGET, 2 * cx, 2 * cy);
+    ball->texture = SDL_CreateTexture(ren, SDL_PIXELFORMAT_RGBA8888, SDL_TEXTUREACCESS_TARGET, 2 * cx + 1, 2 * cy + 1);
     SDL_SetTextureBlendMode(ball->texture, SDL_BLENDMODE_BLEND);
     SDL_SetRenderTarget(ren, ball->texture);
     SDL_SetRenderDrawColor(ren, 0x00, 0x00, 0x00, 0x00);
     SDL_RenderClear(ren);
     SDL_SetRenderDrawColor(ren, 0xff, 0xff, 0xff, 0xff);
-    for (int x = 0; x < 2 * cx; x++)
+    for (int x = 0; x <= 2 * cx; x++)
     {
-        for (int y = 0; y < 2 * cy; y++)
+        for (int y = 0; y <= 2 * cy; y++)
         {
             // check if this point is within the circle
             if ((x - cx) * (x - cx) + (y - cy) * (y - cy) < cx * cx)
@@ -117,6 +83,7 @@ int makeBallTex(Ball* ball, SDL_Renderer* ren)
     SDL_SetRenderTarget(ren, NULL);
     return 1;
 }
+
 /* Ball a will be mutated, and should not point to the buffer, b is in the buffer */
 int ballCollide(Ball* a, Ball* b)
 {
@@ -168,7 +135,6 @@ int main(int argc, char* argv[])
         {
             for (int i = 4; i < argc; i++)
             {
-                if (strcmp(argv[i], "-a") == 0) { DO_ARROWS = 1; }
                 else if (strcmp(argv[i], "-d") == 0) { DO_DEBUG = 1; }
                 else if (strcmp(argv[i], "-u") == 0) { DO_UNEQUAL = 1; }
                 else if (strncmp(argv[i], "-c", 2) == 0)
@@ -195,7 +161,6 @@ int main(int argc, char* argv[])
         printf(
         "gridCollisions help: \n\n"
         "Usage: %s particles gravity radius [flags]\n\n"
-        " -a        Adds velocity arrows\n"
         " -d        Super secret debug mode\n"
         " -u        Spawn particles unbalenced with more velocity on one side\n"
         " -c[int]   Physics cycles per frame, must be nonzero\n"
@@ -359,16 +324,6 @@ int main(int argc, char* argv[])
                     SDL_SetRenderDrawColor(ren, 255, 255, 255, 255);
                     SDL_RenderDrawLine(ren, objects[i].cx, objects[i].cy, ((Ball*)ret[j]->sprite)->cx, ((Ball*)ret[j]->sprite)->cy);
                 }
-                if (DO_DEBUG && (curr_update + 1) % CYCLES_PER_FRAME == 0 && 0)
-                {
-                    // draw a bounding box around the sprite
-                    SDL_SetRenderDrawColor(ren, 255, 255, 255, 0);
-                    bb->x = ret[j]->hitbox.X0;
-                    bb->y = ret[j]->hitbox.Y0;
-                    bb->w = ret[j]->hitbox.X1 - bb->x;
-                    bb->h = ret[j]->hitbox.Y1 - bb->y;
-                    SDL_RenderDrawRect(ren, bb);
-                }
             }
 
             // bounce off the walls
@@ -425,7 +380,7 @@ int main(int argc, char* argv[])
                 // draw the ball
                 //drawBall(objects + i, ren);
                 SDL_SetTextureColorMod(objects[i].texture, r, g, 26);
-                SDL_Rect boundbox = { floor(objects[i].cx - objects[i].r), floor(objects[i].cy - objects[i].r), 2 * ceil(objects[i].r), 2 * ceil(objects[i].r) }; 
+                SDL_Rect boundbox = { round(objects[i].cx - objects[i].r) - 1, round(objects[i].cy - objects[i].r) - 1, 2 * ceil(objects[i].r) + 2, 2 * ceil(objects[i].r) + 2 }; 
                 SDL_RenderCopy(ren, objects[i].texture, NULL, &boundbox);
             }
         }
