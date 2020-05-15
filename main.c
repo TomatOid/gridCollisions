@@ -135,7 +135,7 @@ int main(int argc, char* argv[])
         {
             for (int i = 4; i < argc; i++)
             {
-                else if (strcmp(argv[i], "-d") == 0) { DO_DEBUG = 1; }
+                if (strcmp(argv[i], "-d") == 0) { DO_DEBUG = 1; }
                 else if (strcmp(argv[i], "-u") == 0) { DO_UNEQUAL = 1; }
                 else if (strncmp(argv[i], "-c", 2) == 0)
                 {
