@@ -127,7 +127,8 @@ int queryBox(Grid* grid, Box box, Collider** ret_array, hashTable* table, int MA
     if (RX > grid->width) { RX = grid->width; }
     if (BY > grid->height) { BY = grid->height; }
     // now, if passed, we loop over the intersecting cells
-    int index = 1;
+    int index = 0;
+    int db = 0;
     Cell* cellij;
     for (int i = LX; i < RX; i++)
     {
@@ -138,25 +139,17 @@ int queryBox(Grid* grid, Box box, Collider** ret_array, hashTable* table, int MA
             else
             {
                 LlElem* elem = cellij->entry;
+                db = 0;
                 do
                 {
                     // we need to check if the result already contains this value
-                    // if (!insertHashItem(table, (intptr_t)(elem->obj->sprite), htable_use))
-                    // {
-                    //     if (index >= MAX_SIZE) { return index; }
-                    //     ret_array[index] = elem->obj;
-                    //     index++;
-                    // }
-                    int isRedundant = 0;
-                    for (int k = 0; k < index; k++)
+                    if (!insertHashItem(table, (intptr_t)(elem->obj->sprite), htable_use))
                     {
-                        if (ret_array[k] == elem->obj) { isRedundant = 1; break; }
-                    }
-                    if (!isRedundant)
-                    {
+                        if (index >= MAX_SIZE) { return index; }
                         ret_array[index] = elem->obj;
                         index++;
                     }
+                db++;
                 } while ((elem = elem->next));
             }
         }

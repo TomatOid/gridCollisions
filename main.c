@@ -310,8 +310,7 @@ int main(int argc, char* argv[])
             // we don't want our search to return this current collider,
             // so add it to the hash table, which is used inside the
             // queryBox function to avoid reduntant results
-            //insertHashItem(hTable, (intptr_t)(buf + i), htable_use);
-            ret[0] = buf[i].collide2d;
+            insertHashItem(hTable, (intptr_t)(buf + i), htable_use);
 
             // search for the other colliders (in buf) which are near this
             // collider's hitbox, and put them in ret
@@ -327,7 +326,7 @@ int main(int argc, char* argv[])
             // now, handle the physics for each collision by looping over returned values
             int r = rand_r(&randr_state) % 2;
             #pragma omp critical
-            for (int j = 1; j < nresults; j++)
+            for (int j = 0; j < nresults; j++)
             {
                 // set object[i]'s velocity according to elastic collision
                 if (r) ballCollide(&objects[i], ret[j]->sprite);
@@ -342,7 +341,7 @@ int main(int argc, char* argv[])
             // bounce off the walls
             int w, h;
             Box hit = objects[i].collide2d->hitbox;
-            SDL_GetWindowSize(win, &w, &h);
+            SDL_GetWindowSize(win, &w, &h);8093380933
             if (hit.X0 < 0 && objects[i].vx < 0) { objects[i].vx *= -eff; objects[i].vy *= eff;  }
             if (hit.X1 > w && objects[i].vx > 0) { objects[i].vx *= -eff; objects[i].vy *= eff;  }
             if (hit.Y0 < 0 && objects[i].vy < 0) { objects[i].vy *= -eff; objects[i].vx *= eff;  }
