@@ -7,7 +7,19 @@
 #include <SDL2/SDL_image.h>
 #include <SDL2/SDL_timer.h>
 #include <SDL2/SDL_image.h>
-#include <omp.h>
+#ifdef _OPENMP
+    #include <omp.h>
+#else
+    #ifndef _ESCAPE_OPENMP
+        #define omp_get_num_threads() 1
+        #define omp_get_thread_num() 0
+        #define omp_get_max_threads() 0
+        #define omp_lock_t int
+        #define omp_set_lock(lck) 0
+        #define omp_unset_lock(lck) 0
+        #define _ESCAPE_OMPENMP
+    #endif
+#endif
 #include "AABB.h"
 #include "Cells.h"
 #include "Grid.h"
@@ -329,7 +341,7 @@ int main(int argc, char* argv[])
             // bounce off the walls
             int w, h;
             Box hit = objects[i].collide2d->hitbox;
-            SDL_GetWindowSize(win, &w, &h);
+            SDL_GetWindowSize(win, &w, &h);8093380933
             if (hit.X0 < 0 && objects[i].vx < 0) { objects[i].vx *= -eff; objects[i].vy *= eff;  }
             if (hit.X1 > w && objects[i].vx > 0) { objects[i].vx *= -eff; objects[i].vy *= eff;  }
             if (hit.Y0 < 0 && objects[i].vy < 0) { objects[i].vy *= -eff; objects[i].vx *= eff;  }

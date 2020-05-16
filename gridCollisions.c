@@ -6,7 +6,19 @@
 #include <math.h>
 #include <stdint.h>
 #include <stdio.h>
-#include <omp.h>
+#ifdef _OPENMP
+    #include <omp.h>
+#else
+    #ifndef _ESCAPE_OPENMP
+        #define omp_get_num_threads() 1
+        #define omp_get_thread_num() 0
+        #define omp_get_max_threads() 0
+        #define omp_lock_t int
+        #define omp_set_lock(lck) 0
+        #define omp_unset_lock(lck) 0
+        #define _ESCAPE_OMPENMP
+    #endif
+#endif
 
 Grid* makeGrid(int width, int height, double cellSize)
 {
@@ -131,12 +143,11 @@ int queryBox(Grid* grid, Box box, Collider** ret_array, hashTable* table, int MA
                 do
                 {
                     // we need to check if the result already contains this value
-                    if (!findHashItem(table, (intptr_t)(elem->obj->sprite), htable_use))
+                    if (!insertHashItem(table, (intptr_t)(elem->obj->sprite), htable_use))
                     {
                         if (index >= MAX_SIZE) { return index; }
                         ret_array[index] = elem->obj;
                         index++;
-                        insertHashItem(table, (intptr_t)elem->obj->sprite, htable_use);
                     }
                 db++;
                 } while ((elem = elem->next));

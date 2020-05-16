@@ -15,7 +15,7 @@ typedef struct _hashTable
     size_t num;
 } hashTable;
 
-void insertHashItem(hashTable* table, intptr_t value, int update);
+int insertHashItem(hashTable* table, intptr_t value, int update);
 int findHashItem(hashTable* table, intptr_t lookup, int update);
 
 #endif // HASHTABLE_H_INCLUDED
