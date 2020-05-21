@@ -20,6 +20,9 @@
         #define _ESCAPE_OMPENMP
     #endif
 #endif
+#ifndef CACHE_LINE_SIZE
+    #define CACHE_LINE_SIZE 64
+#endif
 #include "AABB.h"
 #include "Cells.h"
 #include "Grid.h"
@@ -36,7 +39,7 @@ int CYCLES_PER_FRAME = 3;
 int DO_DEBUG = 0;
 int DO_UNEQUAL = 0;
 int OPACITY = 255;
-int MAX_FPS = 30;
+int MAX_FPS = 60;
 const int XRES = 720;
 const int YRES = 720;
 
@@ -78,9 +81,11 @@ int makeBallTex(Ball* ball, SDL_Renderer* ren)
     ball->texture = SDL_CreateTexture(ren, SDL_PIXELFORMAT_RGBA8888, SDL_TEXTUREACCESS_TARGET, 2 * cx + 1, 2 * cy + 1);
     SDL_SetTextureBlendMode(ball->texture, SDL_BLENDMODE_BLEND);
     SDL_SetRenderTarget(ren, ball->texture);
+    // now set the texture's backgrund to transparent
     SDL_SetRenderDrawColor(ren, 0x00, 0x00, 0x00, 0x00);
     SDL_RenderClear(ren);
-    SDL_SetRenderDrawColor(ren, 0xff, 0xff, 0xff, 0xff);
+    // now fill in a circle in white, we will worry about coloring later
+    SDL_SetRenderDrawColor(ren, 0xff, 0xff, rand() % 256, 0xff);
     for (int x = 0; x <= 2 * cx; x++)
     {
         for (int y = 0; y <= 2 * cy; y++)
@@ -179,7 +184,7 @@ int main(int argc, char* argv[])
         " -e[float] Coefficient of restitution / efficiency, must be on [0, 1]\n"
         " -o[int]   Clearing opacity, lower values create trails, must be between 0 and 255\n",
         argv[0]);
-        exit(1);
+        exit(0);
     }
     printf("bSize: %f\n", bSize);
     fflush(stdout);
@@ -210,7 +215,7 @@ int main(int argc, char* argv[])
     #pragma omp threadprivate(ret)
     #pragma omp parallel
     ret = calloc(NUM_BALLS, sizeof(Collider*));
-    // initialize the hash table
+    // initialize the hash table as well as other threadprivates once per thread
     static hashTable* hTable;
     #pragma omp threadprivate(hTable)
     #pragma omp threadprivate(htable_use)
@@ -218,23 +223,23 @@ int main(int argc, char* argv[])
     {
         randr_state = 0xe7425723 ^ omp_get_thread_num();
         htable_use = 0;
-        hTable = malloc(sizeof(hashTable));
-        hTable->items = calloc(NUM_BALLS * 4 + 1, sizeof(hashItem));
-        hTable->len = NUM_BALLS * 4 + 1;
+        if (posix_memalign((void**)&hTable, CACHE_LINE_SIZE, sizeof(hashTable))) exit(1);
+        if (posix_memalign((void**)&hTable->items, CACHE_LINE_SIZE, NUM_BALLS * sizeof(hashItem))) exit(1);
+        hTable->len = NUM_BALLS;
     }
     for (int i = 0; i < NUM_BALLS; i++)
     {
 	    // Initalize the sprites on the heap at random positions
 	    // I should really position them so they don't overlap each other,
 	    // but it'll be fine, right?
-        double r = randi(0.9 * bSize, bSize);
-        makeBall(r, randi(r, XRES - r), randi(r, YRES - r), randi(-10, 10), randi(-10, 10), r, &objects[i], &buf[i]);
+        double r = randi(0.5 * bSize, bSize);
+        makeBall(r, randi(r, XRES - r), randi(r, YRES - r), randi(-100, 100), randi(-100, 100), 3.14 * r * r, &objects[i], &buf[i]);
         makeBallTex(&objects[i], ren);
         if (DO_UNEQUAL && (objects[i].cx < XRES / 2)) { objects[i].vx *= 3; objects[i].vy *= 3; }
         insertToGrid(mainGrid, objects[i].collide2d, curr_update);
     }
-	// The
-    double deltat = 0.1 / CYCLES_PER_FRAME;
+	// The minimum amount of time each cycle can take on average
+    double deltat = 1.0 / (double)(MAX_FPS * CYCLES_PER_FRAME);
     SDL_Rect* bb = malloc(sizeof(SDL_Rect));
     SDL_Event e;
     SDL_Rect winbox = { 0, 0, XRES, YRES };
@@ -341,7 +346,7 @@ int main(int argc, char* argv[])
             // bounce off the walls
             int w, h;
             Box hit = objects[i].collide2d->hitbox;
-            SDL_GetWindowSize(win, &w, &h);8093380933
+            SDL_GetWindowSize(win, &w, &h);
             if (hit.X0 < 0 && objects[i].vx < 0) { objects[i].vx *= -eff; objects[i].vy *= eff;  }
             if (hit.X1 > w && objects[i].vx > 0) { objects[i].vx *= -eff; objects[i].vy *= eff;  }
             if (hit.Y0 < 0 && objects[i].vy < 0) { objects[i].vy *= -eff; objects[i].vx *= eff;  }
@@ -380,7 +385,7 @@ int main(int argc, char* argv[])
                 // part of the purpose of this demo is to visualize
                 // energy transfer using colors, where more red means
                 // more energy, and more green means less energy
-                double energy = 0.01 * objects[i].m / bSize * (objects[i].vx * objects[i].vx + objects[i].vy * objects[i].vy);
+                double energy = 0.0001 * objects[i].m / (bSize * bSize) * (objects[i].vx * objects[i].vx + objects[i].vy * objects[i].vy);
                 // using a squishification function to limit sig to a range of 0 - 1
                 float sig = 1 - 1 / (1 + energy + energy * energy / 2);
                 // now adjust the hue according to sig
@@ -407,7 +412,7 @@ int main(int argc, char* argv[])
             // limit framerate
             int milis = 1000 / MAX_FPS;
             if (dt < milis) { SDL_Delay(milis - dt); }
-            if (DO_DEBUG) printf("FPS: %f\n", (dt < milis ? MAX_FPS : 1000.0 / (double)dt));
+            if (DO_DEBUG || 1) printf("FPS: %f\n", (dt < milis ? MAX_FPS : 1000.0 / (double)dt));
             startTime = SDL_GetTicks();
         }
     }
