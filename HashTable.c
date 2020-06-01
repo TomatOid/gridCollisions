@@ -17,6 +17,7 @@ int insertHashItem(hashTable* table, intptr_t value, int update)
     return 0;
 }
 
+/*
 int findHashItem(hashTable* table, intptr_t lookup, int update)
 {
     int mod = table->len;
@@ -29,3 +30,4 @@ int findHashItem(hashTable* table, intptr_t lookup, int update)
     }
     return 0;
 }
+*/

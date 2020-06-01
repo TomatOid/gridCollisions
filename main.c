@@ -4,9 +4,7 @@
 #include <string.h>
 #include <math.h>
 #include <SDL2/SDL.h>
-#include <SDL2/SDL_image.h>
 #include <SDL2/SDL_timer.h>
-#include <SDL2/SDL_image.h>
 #ifdef _OPENMP
     #include <omp.h>
 #else
@@ -28,6 +26,7 @@
 #include "Grid.h"
 
 Grid* mainGrid;
+SDL_Texture* GridTex;
 int NUM_BALLS = 500;
 // acceleration due to gravity
 double g = 2;
@@ -102,7 +101,7 @@ int makeBallTex(Ball* ball, SDL_Renderer* ren)
 }
 
 /* Ball a will be mutated, and should not point to the buffer, b is in the buffer */
-int ballCollide(Ball* a, Ball* b)
+int ballCollide(Ball* a, const Ball* b)
 {
     double deltax = a->cx - b->cx;
     double deltay = a->cy - b->cy;
@@ -148,6 +147,7 @@ int main(int argc, char* argv[])
         if (NUM_BALLS < 0) { printf("NUM_BALLS cannot be negitive, abort!\n"); return -1; }
         g = atof(argv[2]);
         bSize = atof(argv[3]);
+        // if there are more than the required arguments, scan for valid options
         if (argc > 4)
         {
             for (int i = 4; i < argc; i++)
@@ -197,7 +197,6 @@ int main(int argc, char* argv[])
     SDL_SetRenderDrawBlendMode(ren, SDL_BLENDMODE_BLEND);
 
     srand(18698238);
-    
     int csize = ceil(2.0 * bSize);
     while (XRES % csize) csize++;
     printf("csize: %d\n", csize);
@@ -232,15 +231,31 @@ int main(int argc, char* argv[])
 	    // Initalize the sprites on the heap at random positions
 	    // I should really position them so they don't overlap each other,
 	    // but it'll be fine, right?
-        double r = randi(0.5 * bSize, bSize);
+        double r = randi(0.9 * bSize, bSize);
         makeBall(r, randi(r, XRES - r), randi(r, YRES - r), randi(-100, 100), randi(-100, 100), 3.14 * r * r, &objects[i], &buf[i]);
         makeBallTex(&objects[i], ren);
         if (DO_UNEQUAL && (objects[i].cx < XRES / 2)) { objects[i].vx *= 3; objects[i].vy *= 3; }
         insertToGrid(mainGrid, objects[i].collide2d, curr_update);
     }
+
+    // Now make the grid texture for debugging
+    GridTex = SDL_CreateTexture(ren, SDL_PIXELFORMAT_RGBA8888, SDL_TEXTUREACCESS_TARGET, XRES, YRES);
+    SDL_SetRenderTarget(ren, GridTex);
+    SDL_SetRenderDrawColor(ren, 12, 32, 89, 255);
+    SDL_Rect bb;
+    bb.w = csize;
+    bb.h = csize;
+    for (bb.x = 0; bb.x < XRES; bb.x += csize)
+    {
+        for (bb.y = 0; bb.y < YRES; bb.y += csize)
+        {
+            SDL_RenderDrawRect(ren, &bb);
+        }
+    }
+    SDL_SetRenderTarget(ren, NULL);
+
 	// The minimum amount of time each cycle can take on average
     double deltat = 1.0 / (double)(MAX_FPS * CYCLES_PER_FRAME);
-    SDL_Rect* bb = malloc(sizeof(SDL_Rect));
     SDL_Event e;
     SDL_Rect winbox = { 0, 0, XRES, YRES };
     // Setup window pos variables
@@ -268,16 +283,7 @@ int main(int argc, char* argv[])
         // now, if debugging, and it is a draw cycle, draw the grid
         if (DO_DEBUG && (curr_update + 1) % CYCLES_PER_FRAME == 0)
         {
-            SDL_SetRenderDrawColor(ren, 12, 32, 89, 255);
-            bb->w = csize;
-            bb->h = csize;
-            for (bb->x = 0; bb->x < XRES; bb->x += csize)
-            {
-                for (bb->y = 0; bb->y < YRES; bb->y += csize)
-                {
-                    SDL_RenderDrawRect(ren, bb);
-                }
-            }
+            SDL_RenderCopy(ren, GridTex, NULL, NULL);
         }
 
         // loop to adjust velocities according to window movement
@@ -320,13 +326,6 @@ int main(int argc, char* argv[])
             // search for the other colliders (in buf) which are near this
             // collider's hitbox, and put them in ret
             int nresults = queryBox(mainGrid, objects[i].collide2d->hitbox, ret, hTable, NUM_BALLS, curr_update, htable_use, rand_r(&randr_state) % 2, 0);
-
-            if (DO_DEBUG && 0)
-            {
-                // print how many colliders were returned
-                printf("%d ", nresults);
-                fflush(stdout);
-            }
 
             // now, handle the physics for each collision by looping over returned values
             int r = rand_r(&randr_state) % 2;
@@ -395,8 +394,7 @@ int main(int argc, char* argv[])
                 int g = (int)((sig < 0.5) ? colormax : colormin - (colormax - colormin) * 2 * (sig - 1));
 
                 // draw the ball
-                //drawBall(objects + i, ren);
-                SDL_SetTextureColorMod(objects[i].texture, r, g, 26);
+                SDL_SetTextureColorMod(objects[i].texture, r, g, 36);
                 SDL_Rect boundbox = { round(objects[i].cx - objects[i].r) - 1, round(objects[i].cy - objects[i].r) - 1, 2 * ceil(objects[i].r) + 2, 2 * ceil(objects[i].r) + 2 }; 
                 SDL_RenderCopy(ren, objects[i].texture, NULL, &boundbox);
             }
@@ -412,7 +410,7 @@ int main(int argc, char* argv[])
             // limit framerate
             int milis = 1000 / MAX_FPS;
             if (dt < milis) { SDL_Delay(milis - dt); }
-            if (DO_DEBUG || 1) printf("FPS: %f\n", (dt < milis ? MAX_FPS : 1000.0 / (double)dt));
+            if (DO_DEBUG) printf("FPS: %f\n", (dt < milis ? MAX_FPS : 1000.0 / (double)dt));
             startTime = SDL_GetTicks();
         }
     }
