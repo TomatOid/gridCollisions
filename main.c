@@ -121,6 +121,14 @@ int ballCollide(Ball* a, const Ball* b)
     else { return 0; }
 }
 
+uint32_t threadSafeXorShift(uint32_t *state)
+{
+    *state ^= *state << 13;
+    *state ^= *state >> 17;
+    *state ^= *state << 5;
+    return *state;
+}
+
 /* pick a random double from a to b */
 double randi(double a, double b)
 {
@@ -202,7 +210,7 @@ int main(int argc, char* argv[])
     fflush(stdout);
 
     // declare random seeds
-    static unsigned int randr_state;
+    static uint32_t randr_state;
     #pragma omp threadprivate(randr_state)
 
     // make the grid so grid coords equal screen coords
@@ -324,10 +332,10 @@ int main(int argc, char* argv[])
 
             // search for the other colliders (in buf) which are near this
             // collider's hitbox, and put them in ret
-            int nresults = queryBox(mainGrid, objects[i].collide2d->hitbox, ret, hTable, NUM_BALLS, curr_update, htable_use, rand_r(&randr_state) % 2, 0);
+            int nresults = queryBox(mainGrid, objects[i].collide2d->hitbox, ret, hTable, NUM_BALLS, curr_update, htable_use, threadSafeXorShift(&randr_state) % 2, 0);
 
             // now, handle the physics for each collision by looping over returned values
-            int r = rand_r(&randr_state) % 2;
+            int r = threadSafeXorShift(&randr_state) % 2;
             #pragma omp critical
             for (int j = 0; j < nresults; j++)
             {
