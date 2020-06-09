@@ -34,7 +34,7 @@ Grid* makeGrid(int width, int height, double cellSize)
         for (int j = 0; j < width; j++)
         {
             (res->cells + i * height + j)->entry = NULL;
-            (res->cells + i * height + j)->lastUpdate = -5; // this is overflowing into 
+            (res->cells + i * height + j)->lastUpdate = -5; 
         }
     }
     return res;
@@ -87,6 +87,7 @@ void insertToGrid(Grid* grid, Collider* collider, uint32_t curr_update)
         {
             // ensure that we don't write to memory we aren't supposed to
             // this fixes the buffer overflow bug
+            // this may no longer be needed as the bug is fixed and this was not the problem
             if (collider->index >= collider->memMax) return;
             cellij = (grid->cells + i * grid->height + j);
             omp_set_lock(&cellij->lck);
@@ -128,7 +129,6 @@ int queryBox(Grid* grid, Box box, Collider** ret_array, hashTable* table, int MA
     if (BY > grid->height) { BY = grid->height; }
     // now, if passed, we loop over the intersecting cells
     int index = 0;
-    int db = 0;
     Cell* cellij;
     for (int i = LX; i < RX; i++)
     {
@@ -139,7 +139,6 @@ int queryBox(Grid* grid, Box box, Collider** ret_array, hashTable* table, int MA
             else
             {
                 LlElem* elem = cellij->entry;
-                db = 0;
                 do
                 {
                     // we need to check if the result already contains this value
@@ -149,7 +148,6 @@ int queryBox(Grid* grid, Box box, Collider** ret_array, hashTable* table, int MA
                         ret_array[index] = elem->obj;
                         index++;
                     }
-                db++;
                 } while ((elem = elem->next));
             }
         }
