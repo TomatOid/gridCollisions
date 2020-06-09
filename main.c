@@ -29,11 +29,10 @@ Grid* mainGrid;
 SDL_Texture* GridTex;
 int NUM_BALLS = 500;
 // acceleration due to gravity
-double g = 2;
+double gravity_acceleration = 2;
 // velocity loss per interaction, multiplicitive
-double eff = 1;
-double vthresh = 0;
-double bSize = 10;
+double restitution_coefficient = 1;
+double max_ball_size = 10;
 int CYCLES_PER_FRAME = 3;
 int DO_DEBUG = 0;
 int DO_UNEQUAL = 0;
@@ -115,8 +114,8 @@ int ballCollide(Ball* a, const Ball* b)
     {
         a->isColliding = 1;
         double mul = (2 * b->m * vdotdisp) / ((a->m + b->m) * dsquared);
-        a->vx -= eff * mul * deltax;
-        a->vy -= eff * mul * deltay;
+        a->vx -= restitution_coefficient * mul * deltax;
+        a->vy -= restitution_coefficient * mul * deltay;
         return 1;
     }
     else { return 0; }
@@ -145,8 +144,8 @@ int main(int argc, char* argv[])
         // the second determines the gravity acceleration
         NUM_BALLS = atoi(argv[1]);
         if (NUM_BALLS < 0) { printf("NUM_BALLS cannot be negitive, abort!\n"); return -1; }
-        g = atof(argv[2]);
-        bSize = atof(argv[3]);
+        gravity_acceleration = atof(argv[2]);
+        max_ball_size = atof(argv[3]);
         // if there are more than the required arguments, scan for valid options
         if (argc > 4)
         {
@@ -162,7 +161,7 @@ int main(int argc, char* argv[])
                 else if (strncmp(argv[i], "-e", 2) == 0)
                 {
                     float f = atof(argv[i] + 2);
-                    if (f >= 0 && f <= 1) { eff = f; }
+                    if (f >= 0 && f <= 1) { restitution_coefficient = f; }
                 }
                 else if (strncmp(argv[i], "-o", 2) == 0)
                 {
@@ -186,7 +185,7 @@ int main(int argc, char* argv[])
         argv[0]);
         exit(0);
     }
-    printf("bSize: %f\n", bSize);
+    printf("max_ball_size: %f\n", max_ball_size);
     fflush(stdout);
     if (SDL_Init(SDL_INIT_EVERYTHING)) { printf("error."); return 0; }
 
@@ -197,9 +196,9 @@ int main(int argc, char* argv[])
     SDL_SetRenderDrawBlendMode(ren, SDL_BLENDMODE_BLEND);
 
     srand(18698238);
-    int csize = ceil(2.0 * bSize);
-    while (XRES % csize) csize++;
-    printf("csize: %d\n", csize);
+    int grid_cell_size = ceil(2.0 * max_ball_size);
+    while (XRES % grid_cell_size) grid_cell_size++;
+    printf("grid_cell_size: %d\n", grid_cell_size);
     fflush(stdout);
 
     // declare random seeds
@@ -207,7 +206,7 @@ int main(int argc, char* argv[])
     #pragma omp threadprivate(randr_state)
 
     // make the grid so grid coords equal screen coords
-    mainGrid = makeGrid(1 + (int)XRES / csize, 1 + (int)YRES / csize, (double)csize);
+    mainGrid = makeGrid(1 + (int)XRES / grid_cell_size, 1 + (int)YRES / grid_cell_size, (double)grid_cell_size);
     // allocate the sprite memory, using calloc because debuging has made me paranoid
     objects = calloc(NUM_BALLS, sizeof(Ball));
     buf = calloc(NUM_BALLS, sizeof(Ball));
@@ -231,7 +230,7 @@ int main(int argc, char* argv[])
 	    // Initalize the sprites on the heap at random positions
 	    // I should really position them so they don't overlap each other,
 	    // but it'll be fine, right?
-        double r = randi(0.9 * bSize, bSize);
+        double r = randi(0.9 * max_ball_size, max_ball_size);
         makeBall(r, randi(r, XRES - r), randi(r, YRES - r), randi(-100, 100), randi(-100, 100), 3.14 * r * r, &objects[i], &buf[i]);
         makeBallTex(&objects[i], ren);
         if (DO_UNEQUAL && (objects[i].cx < XRES / 2)) { objects[i].vx *= 3; objects[i].vy *= 3; }
@@ -243,11 +242,11 @@ int main(int argc, char* argv[])
     SDL_SetRenderTarget(ren, GridTex);
     SDL_SetRenderDrawColor(ren, 12, 32, 89, 255);
     SDL_Rect bb;
-    bb.w = csize;
-    bb.h = csize;
-    for (bb.x = 0; bb.x < XRES; bb.x += csize)
+    bb.w = grid_cell_size;
+    bb.h = grid_cell_size;
+    for (bb.x = 0; bb.x < XRES; bb.x += grid_cell_size)
     {
-        for (bb.y = 0; bb.y < YRES; bb.y += csize)
+        for (bb.y = 0; bb.y < YRES; bb.y += grid_cell_size)
         {
             SDL_RenderDrawRect(ren, &bb);
         }
@@ -346,12 +345,12 @@ int main(int argc, char* argv[])
             int w, h;
             Box hit = objects[i].collide2d->hitbox;
             SDL_GetWindowSize(win, &w, &h);
-            if (hit.X0 < 0 && objects[i].vx < 0) { objects[i].vx *= -eff; objects[i].vy *= eff;  }
-            if (hit.X1 > w && objects[i].vx > 0) { objects[i].vx *= -eff; objects[i].vy *= eff;  }
-            if (hit.Y0 < 0 && objects[i].vy < 0) { objects[i].vy *= -eff; objects[i].vx *= eff;  }
-            if (hit.Y1 > h && objects[i].vy > 0) { objects[i].vy *= -eff; objects[i].vx *= eff; objects[i].isColliding = 1; }
+            if (hit.X0 < 0 && objects[i].vx < 0) { objects[i].vx *= -restitution_coefficient; objects[i].vy *= restitution_coefficient;  }
+            if (hit.X1 > w && objects[i].vx > 0) { objects[i].vx *= -restitution_coefficient; objects[i].vy *= restitution_coefficient;  }
+            if (hit.Y0 < 0 && objects[i].vy < 0) { objects[i].vy *= -restitution_coefficient; objects[i].vx *= restitution_coefficient;  }
+            if (hit.Y1 > h && objects[i].vy > 0) { objects[i].vy *= -restitution_coefficient; objects[i].vx *= restitution_coefficient; objects[i].isColliding = 1; }
             // do gravity if not colliding
-            if (!objects[i].isColliding) { objects[i].vy += g * deltat; }
+            if (!objects[i].isColliding) { objects[i].vy += gravity_acceleration * deltat; }
         }
 
         curr_update++;
@@ -384,7 +383,7 @@ int main(int argc, char* argv[])
                 // part of the purpose of this demo is to visualize
                 // energy transfer using colors, where more red means
                 // more energy, and more green means less energy
-                double energy = 0.0001 * objects[i].m / (bSize * bSize) * (objects[i].vx * objects[i].vx + objects[i].vy * objects[i].vy);
+                double energy = 0.0001 * objects[i].m / (max_ball_size * max_ball_size) * (objects[i].vx * objects[i].vx + objects[i].vy * objects[i].vy);
                 // using a squishification function to limit sig to a range of 0 - 1
                 float sig = 1 - 1 / (1 + energy + energy * energy / 2);
                 // now adjust the hue according to sig
