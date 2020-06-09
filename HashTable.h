@@ -4,18 +4,18 @@
 
 typedef struct _hashItem
 {
-    int updateCount;
+    uint32_t updateCount;
     intptr_t value;
 } hashItem;
 
 typedef struct _hashTable
 {
     hashItem* items;
-    int len;
-    int num;
+    size_t len;
+    size_t num;
 } hashTable;
 
-void insertHashItem(hashTable* table, intptr_t value, int update);
+int insertHashItem(hashTable* table, intptr_t value, int update);
 int findHashItem(hashTable* table, intptr_t lookup, int update);
 
 #endif // HASHTABLE_H_INCLUDED

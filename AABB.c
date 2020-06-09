@@ -10,7 +10,7 @@ void translateBox(Box* B, int X, int Y)
     B->Y1 += Y;
 }
 
-int isPtOverlap(float Pt, float X0, float X1)
+int isPtOverlap(double Pt, double X0, double X1)
 {
     return (X0 > Pt) ^ (X1 > Pt);
 }
@@ -33,7 +33,7 @@ int isBoxOverlap0(Box box0, Box box1)
     return (isPtOverlap(box0.X0, box1.X0, box1.X1) | isPtOverlap(box1.X1, box0.X0, box0.X1)) & (isPtOverlap(box0.Y0, box1.Y0, box1.Y1) | isPtOverlap(box1.Y1, box1.Y0, box0.Y1));
 }
 
-Box* makeBox(float AX, float AY, float BX, float BY)
+Box* makeBox(double AX, double AY, double BX, double BY)
 {
     Box* res = malloc(sizeof(Box));
     if (!res) { return res; }
