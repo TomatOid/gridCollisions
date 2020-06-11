@@ -229,8 +229,13 @@ int main(int argc, char* argv[])
     {
         randr_state = 0xe7425723 ^ omp_get_thread_num();
         htable_use = 0;
+        #ifdef __unix__
         if (posix_memalign((void**)&hTable, CACHE_LINE_SIZE, sizeof(hashTable))) exit(1);
         if (posix_memalign((void**)&hTable->items, CACHE_LINE_SIZE, NUM_BALLS * sizeof(hashItem))) exit(1);
+        #elif
+        hTable = calloc(1, sizeof(hashTable));
+        hTable->items = calloc(NUM_BALLS, sizeof(hashItem));
+        #endif
         hTable->len = NUM_BALLS;
     }
     for (int i = 0; i < NUM_BALLS; i++)
