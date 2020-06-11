@@ -52,7 +52,14 @@ typedef struct Ball
     double vx;
     double vy;
     double m;
+    double collision_time;
 } Ball;
+
+typedef struct BallCollisionTimePair
+{
+    Ball ball;
+    double collision_time;
+} BallCollisionTimePair;
 
 void makeBall(double r, double cx, double cy, double vx, double vy, double m, Ball* addr, Ball* buff)
 {
@@ -68,6 +75,7 @@ void makeBall(double r, double cx, double cy, double vx, double vy, double m, Ba
     addr->vx = vx;
     addr->vy = vy;
     addr->m = m;
+    addr->collision_time = 0;
 }
 
 int makeBallTex(Ball* ball, SDL_Renderer* ren)
@@ -135,11 +143,77 @@ double randi(double a, double b)
     return ((double)rand() / RAND_MAX) * (b - a) + a;
 }
 
+void stepTime(Ball* ball, double _delta_t, double y_acceleration)
+{
+    double dx = 0;
+    double dy = 0;
+    // calculate the position step
+    if (_delta_t > 0)
+    {
+        ball->vy += y_acceleration * _delta_t;
+        dx = ball->vx * _delta_t;
+        dy = ball->vy * _delta_t;
+    }
+    else
+    {
+        dx = ball->vx * _delta_t;
+        dy = ball->vy * _delta_t;
+        ball->vy += y_acceleration * _delta_t;
+    }
+
+    // update the circle center
+    ball->cx += dx;
+    ball->cy += dy;
+
+    // update the hitbox
+    double r = ball->r;
+    ball->collide2d->hitbox.X0 = ball->cx - r;
+    ball->collide2d->hitbox.Y0 = ball->cy - r;
+    ball->collide2d->hitbox.X1 = ball->cx + r;
+    ball->collide2d->hitbox.Y1 = ball->cy + r;
+}
+
+double recursivelyFindCollisionTime(Ball ball_a, Ball ball_b, double _delta_t, double y_acceleration)
+{
+    double collision_time = _delta_t;
+    double delta_x = ball_a.cx - ball_b.cx;
+    double delta_y = ball_a.cy - ball_b.cy;
+    // if ball a and b are not intersecting
+    if (delta_x * delta_x + delta_y * delta_y > (ball_a.r + ball_b.r) * (ball_a.r + ball_b.r)) return collision_time;
+    while (_delta_t != 0.0)
+    {
+        _delta_t /= 2;
+        // step backwards in time
+        stepTime(&ball_a, -_delta_t, y_acceleration);
+        stepTime(&ball_b, -_delta_t, y_acceleration);
+        double delta_x = ball_a.cx - ball_b.cx;
+        double delta_y = ball_a.cy - ball_b.cy;
+        // if they are no longer intersecting, undo
+        if (delta_x * delta_x + delta_y * delta_y > (ball_a.r + ball_b.r) * (ball_a.r + ball_b.r))
+        {
+            stepTime(&ball_a, _delta_t, y_acceleration);
+            stepTime(&ball_b, _delta_t, y_acceleration);
+        } 
+        else collision_time -= _delta_t;
+    }
+    if (collision_time > 0) printf("%f\n", collision_time);
+    return collision_time;
+}
+
+int ballCollisionTimePairComparator(const void *ball_time_a, const void *ball_time_b)
+{
+    double time_a = ((BallCollisionTimePair *)ball_time_a)->collision_time;
+    double time_b = ((BallCollisionTimePair *)ball_time_b)->collision_time;
+    if (time_a == time_b) return 0;
+    else return 2 * (time_a > time_b) - 1;
+}
+
 Ball* objects;
 Ball* buf;
 static Collider** ret;
-Uint32 startTime = 0;
-Uint32 endTime = 0;
+static BallCollisionTimePair* time_sorting_list;
+Uint32 start_time = 0;
+Uint32 end_time = 0;
 uint32_t curr_update = 0;
 static uint32_t htable_use;
 
@@ -219,8 +293,12 @@ int main(int argc, char* argv[])
     objects = calloc(NUM_BALLS, sizeof(Ball));
     buf = calloc(NUM_BALLS, sizeof(Ball));
     #pragma omp threadprivate(ret)
+    #pragma omp threadptivate(time_sorting_list);
     #pragma omp parallel
-    ret = calloc(NUM_BALLS, sizeof(Collider*));
+    {
+        ret = calloc(NUM_BALLS, sizeof(Collider*));
+        time_sorting_list = calloc(NUM_BALLS, sizeof(BallCollisionTimePair));
+    }
     // initialize the hash table as well as other threadprivates once per thread
     static hashTable* hTable;
     #pragma omp threadprivate(hTable)
@@ -235,10 +313,10 @@ int main(int argc, char* argv[])
     }
     for (int i = 0; i < NUM_BALLS; i++)
     {
-	    // Initalize the sprites on the heap at random positions
-	    // I should really position them so they don't overlap each other,
-	    // but it'll be fine, right?
-        double r = randi(0.9 * max_ball_size, max_ball_size);
+        // Initalize the sprites on the heap at random positions
+        // I should really position them so they don't overlap each other,
+        // but it'll be fine, right?
+        double r = randi(max_ball_size, max_ball_size);
         makeBall(r, randi(r, XRES - r), randi(r, YRES - r), randi(-100, 100), randi(-100, 100), 3.14 * r * r, &objects[i], &buf[i]);
         makeBallTex(&objects[i], ren);
         if (DO_UNEQUAL && (objects[i].cx < XRES / 2)) { objects[i].vx *= 3; objects[i].vy *= 3; }
@@ -261,7 +339,7 @@ int main(int argc, char* argv[])
     }
     SDL_SetRenderTarget(ren, NULL);
 
-	// The minimum amount of time each cycle can take on average
+    // The minimum amount of time each cycle can take on average
     double deltat = 1.0 / (double)(MAX_FPS * CYCLES_PER_FRAME);
     SDL_Event e;
     SDL_Rect winbox = { 0, 0, XRES, YRES };
@@ -273,11 +351,11 @@ int main(int argc, char* argv[])
     winposY1 = winposY0;
     winposX2 = winposX1;
     winposX2 = winposY1;
-    startTime = SDL_GetTicks();
+    start_time = SDL_GetTicks();
     while (1)
     {
         // Check to see if the user is trying to close the program, to prevent hanging
-		SDL_PollEvent(&e);
+        SDL_PollEvent(&e);
         if (e.type == SDL_QUIT) { break; }
 
         // clear the background
@@ -333,6 +411,14 @@ int main(int argc, char* argv[])
             // search for the other colliders (in buf) which are near this
             // collider's hitbox, and put them in ret
             int nresults = queryBox(mainGrid, objects[i].collide2d->hitbox, ret, hTable, NUM_BALLS, curr_update, htable_use, threadSafeXorShift(&randr_state) % 2, 0);
+            
+            for (int j = 0; j < nresults; j++)
+            {
+                double time_of_collision = recursivelyFindCollisionTime(objects[i], *((Ball*)ret[j]->sprite), deltat, gravity_acceleration);
+                time_sorting_list[j].ball = *(Ball*)ret[j]->sprite;
+                time_sorting_list[j].collision_time = time_of_collision;
+            }
+            qsort((void *)time_sorting_list, nresults, sizeof(BallCollisionTimePair), ballCollisionTimePairComparator);
 
             // now, handle the physics for each collision by looping over returned values
             int r = threadSafeXorShift(&randr_state) % 2;
@@ -340,12 +426,20 @@ int main(int argc, char* argv[])
             for (int j = 0; j < nresults; j++)
             {
                 // set object[i]'s velocity according to elastic collision
-                if (r) ballCollide(&objects[i], ret[j]->sprite);
-                else ballCollide(&objects[i], ret[nresults - j - 1]->sprite);
+                stepTime(&objects[i], time_sorting_list[j].collision_time - objects[i].collision_time, gravity_acceleration);
+                stepTime(&time_sorting_list[j].ball, time_sorting_list[j].collision_time, gravity_acceleration);
+                if (ballCollide(&objects[i], &time_sorting_list[j].ball))
+                {
+                    objects[i].collision_time = time_sorting_list[j].collision_time;
+                }
+                else
+                {
+                    stepTime(&objects[i], objects[i].collision_time - time_sorting_list[j].collision_time, gravity_acceleration);
+                }
                 if (DO_DEBUG && (curr_update + 1) % CYCLES_PER_FRAME == 0)
                 {
                     SDL_SetRenderDrawColor(ren, 255, 255, 255, 255);
-                    SDL_RenderDrawLine(ren, objects[i].cx, objects[i].cy, ((Ball*)ret[j]->sprite)->cx, ((Ball*)ret[j]->sprite)->cy);
+                    SDL_RenderDrawLine(ren, objects[i].cx, objects[i].cy, time_sorting_list[j].ball.cx, time_sorting_list[j].ball.cy);
                 }
             }
 
@@ -358,7 +452,7 @@ int main(int argc, char* argv[])
             if (hit.Y0 < 0 && objects[i].vy < 0) { objects[i].vy *= -restitution_coefficient; objects[i].vx *= restitution_coefficient;  }
             if (hit.Y1 > h && objects[i].vy > 0) { objects[i].vy *= -restitution_coefficient; objects[i].vx *= restitution_coefficient; objects[i].isColliding = 1; }
             // do gravity if not colliding
-            if (!objects[i].isColliding) { objects[i].vy += gravity_acceleration * deltat; }
+            //if (!objects[i].isColliding || 1) { objects[i].vy += gravity_acceleration * deltat; }
         }
 
         curr_update++;
@@ -367,19 +461,8 @@ int main(int argc, char* argv[])
         for (int i = 0; i < NUM_BALLS; i++)
         {
             // calculate the position step
-            double dx = objects[i].vx * deltat;
-            double dy = objects[i].vy * deltat;
-
-            // update the hitbox
-            objects[i].collide2d->hitbox.X0 += dx;
-            objects[i].collide2d->hitbox.Y0 += dy;
-            objects[i].collide2d->hitbox.X1 += dx;
-            objects[i].collide2d->hitbox.Y1 += dy;
-
-            // update the circle center
-            objects[i].cx += dx;
-            objects[i].cy += dy;
-
+            stepTime(&objects[i], deltat - objects[i].collision_time, gravity_acceleration);
+            objects[i].collision_time = 0;
             // re-insert this sprite into the grid
             insertToGrid(mainGrid, objects[i].collide2d, curr_update);
         }
@@ -412,13 +495,13 @@ int main(int argc, char* argv[])
         if (curr_update % CYCLES_PER_FRAME == 0)
         {
             SDL_RenderPresent(ren);
-            endTime = SDL_GetTicks();
-            double dt = endTime - startTime;
+            end_time = SDL_GetTicks();
+            double dt = end_time - start_time;
             // limit framerate
             int milis = 1000 / MAX_FPS;
             if (dt < milis) { SDL_Delay(milis - dt); }
             if (DO_DEBUG) printf("FPS: %f\n", (dt < milis ? MAX_FPS : 1000.0 / (double)dt));
-            startTime = SDL_GetTicks();
+            start_time = SDL_GetTicks();
         }
     }
     return 0;
