@@ -15,7 +15,8 @@
         #define omp_lock_t int
         #define omp_set_lock(lck) 0
         #define omp_unset_lock(lck) 0
-        #define _ESCAPE_OMPENMP
+        #define omp_init_lock(lck) 0
+        #define _ESCAPE_OPENMP
     #endif
 #endif
 #ifndef CACHE_LINE_SIZE
@@ -24,6 +25,8 @@
 #include "AABB.h"
 #include "Cells.h"
 #include "Grid.h"
+#define DO_LOGGING
+#define ISOTHERMAL_RESIZE
 
 Grid* mainGrid;
 SDL_Texture* GridTex;
@@ -38,7 +41,7 @@ int DO_DEBUG = 0;
 int DO_UNEQUAL = 0;
 int OPACITY = 255;
 int MAX_FPS = 60;
-const int XRES = 720;
+const int XRES = 960;
 const int YRES = 720;
 
 typedef struct Ball
@@ -200,16 +203,16 @@ int main(int argc, char* argv[])
     SDL_Window* win;
     SDL_Renderer* ren;
 
-    SDL_CreateWindowAndRenderer(XRES, YRES, 0, &win, &ren);
+    SDL_CreateWindowAndRenderer(XRES, YRES, SDL_WINDOW_RESIZABLE, &win, &ren);
     SDL_SetRenderDrawBlendMode(ren, SDL_BLENDMODE_BLEND);
 
-    srand(18698238);
     int grid_cell_size = ceil(2.0 * max_ball_size);
     while (XRES % grid_cell_size) grid_cell_size++;
     printf("grid_cell_size: %d\n", grid_cell_size);
     fflush(stdout);
 
     // declare random seeds
+    srand(18698238);
     static uint32_t randr_state;
     #pragma omp threadprivate(randr_state)
 
@@ -221,6 +224,7 @@ int main(int argc, char* argv[])
     #pragma omp threadprivate(ret)
     #pragma omp parallel
     ret = calloc(NUM_BALLS, sizeof(Collider*));
+
     // initialize the hash table as well as other threadprivates once per thread
     static hashTable* hTable;
     #pragma omp threadprivate(hTable)
@@ -232,7 +236,7 @@ int main(int argc, char* argv[])
         #ifdef __unix__
         if (posix_memalign((void**)&hTable, CACHE_LINE_SIZE, sizeof(hashTable))) exit(1);
         if (posix_memalign((void**)&hTable->items, CACHE_LINE_SIZE, NUM_BALLS * sizeof(hashItem))) exit(1);
-        #elif
+        #else
         hTable = calloc(1, sizeof(hashTable));
         hTable->items = calloc(NUM_BALLS, sizeof(hashItem));
         #endif
@@ -243,10 +247,10 @@ int main(int argc, char* argv[])
 	    // Initalize the sprites on the heap at random positions
 	    // I should really position them so they don't overlap each other,
 	    // but it'll be fine, right?
-        double r = randi(0.9 * max_ball_size, max_ball_size);
+        double r = randi(max_ball_size * 0.3, max_ball_size);
         makeBall(r, randi(r, XRES - r), randi(r, YRES - r), randi(-100, 100), randi(-100, 100), 3.14 * r * r, &objects[i], &buf[i]);
         makeBallTex(&objects[i], ren);
-        if (DO_UNEQUAL && (objects[i].cx < XRES / 2)) { objects[i].vx *= 3; objects[i].vy *= 3; }
+        if (DO_UNEQUAL && !(objects[i].cx < XRES / 2)) { objects[i].vx *= 3; objects[i].vy *= 3; }
         insertToGrid(mainGrid, objects[i].collide2d, curr_update);
     }
 
@@ -270,6 +274,12 @@ int main(int argc, char* argv[])
     double deltat = 1.0 / (double)(MAX_FPS * CYCLES_PER_FRAME);
     SDL_Event e;
     SDL_Rect winbox = { 0, 0, XRES, YRES };
+    SDL_SetWindowMaximumSize(win, XRES, YRES);
+    int window_width, window_height, last_window_width, last_window_height;
+    SDL_GetWindowPosition(win, &window_width, &window_height);
+    double right_edge_velocity = 0;
+    double bottom_edge_velocity = 0;
+    double accumualted_impulse = 0;
     // Setup window pos variables
     int winposX0, winposY0, winposX1, winposY1, winposX2, winposY2;
     SDL_GetWindowPosition(win, &winposX0, &winposY0);
@@ -282,9 +292,22 @@ int main(int argc, char* argv[])
     while (1)
     {
         // Check to see if the user is trying to close the program, to prevent hanging
-		SDL_PollEvent(&e);
-        if (e.type == SDL_QUIT) { break; }
-
+		while (SDL_PollEvent(&e))
+        {
+            switch (e.type)
+            {
+                case SDL_QUIT:
+                    exit(0);
+                case SDL_WINDOWEVENT:
+                {
+                    if (e.window.event == SDL_WINDOWEVENT_RESIZED)
+                    {
+                        winbox.w = e.window.data1;
+                        winbox.h = e.window.data2;
+                    } 
+                }
+            }
+        }
         // clear the background
         if ((curr_update + 1) % CYCLES_PER_FRAME == 0) { SDL_SetRenderDrawColor(ren, 0, 0, 0, OPACITY); SDL_RenderFillRect(ren, &winbox); }
 
@@ -301,6 +324,14 @@ int main(int argc, char* argv[])
         // loop to adjust velocities according to window movement
         if ((curr_update + 1) % CYCLES_PER_FRAME == 0)
         {
+            // record the window sizes
+            last_window_width = window_width;
+            last_window_height = window_height;
+            SDL_GetWindowSize(win, &window_width, &window_height);
+#ifndef ISOTHERMAL_RESIZE
+            right_edge_velocity = -(double)(last_window_width - window_width) / (deltat * CYCLES_PER_FRAME);
+            bottom_edge_velocity = -(double)(last_window_height - window_height) / (deltat * CYCLES_PER_FRAME);
+#endif
             int tmpx, tmpy;
             SDL_GetWindowPosition(win, &tmpx, &tmpy);
             winposX2 = winposX1;
@@ -320,7 +351,7 @@ int main(int argc, char* argv[])
                 }
             }
         }
-
+        
         // collision loop
         #pragma omp parallel for
         for (int i = 0; i < NUM_BALLS; i++)
@@ -341,33 +372,55 @@ int main(int argc, char* argv[])
 
             // now, handle the physics for each collision by looping over returned values
             int r = threadSafeXorShift(&randr_state) % 2;
-            #pragma omp critical
             for (int j = 0; j < nresults; j++)
             {
                 // set object[i]'s velocity according to elastic collision
                 if (r) ballCollide(&objects[i], ret[j]->sprite);
                 else ballCollide(&objects[i], ret[nresults - j - 1]->sprite);
+                #ifndef _OPENMP
                 if (DO_DEBUG && (curr_update + 1) % CYCLES_PER_FRAME == 0)
                 {
                     SDL_SetRenderDrawColor(ren, 255, 255, 255, 255);
                     SDL_RenderDrawLine(ren, objects[i].cx, objects[i].cy, ((Ball*)ret[j]->sprite)->cx, ((Ball*)ret[j]->sprite)->cy);
                 }
+                #endif
             }
 
             // bounce off the walls
-            int w, h;
             Box hit = objects[i].collide2d->hitbox;
-            SDL_GetWindowSize(win, &w, &h);
-            if (hit.X0 < 0 && objects[i].vx < 0) { objects[i].vx *= -restitution_coefficient; objects[i].vy *= restitution_coefficient;  }
-            if (hit.X1 > w && objects[i].vx > 0) { objects[i].vx *= -restitution_coefficient; objects[i].vy *= restitution_coefficient;  }
-            if (hit.Y0 < 0 && objects[i].vy < 0) { objects[i].vy *= -restitution_coefficient; objects[i].vx *= restitution_coefficient;  }
-            if (hit.Y1 > h && objects[i].vy > 0) { objects[i].vy *= -restitution_coefficient; objects[i].vx *= restitution_coefficient; objects[i].isColliding = 1; }
+            if (hit.X0 < 0 && objects[i].vx < 0) 
+            { 
+                accumualted_impulse += abs(objects[i].m * objects[i].vx);
+                objects[i].vx = objects[i].vx * -restitution_coefficient; //- (1 + restitution_coefficient) * right_edge_velocity;
+                objects[i].vy *= restitution_coefficient;  
+                accumualted_impulse += abs(objects[i].m * objects[i].vx);
+            }
+            if (hit.X1 > window_width && objects[i].vx - right_edge_velocity > 0) 
+            { 
+                accumualted_impulse += abs(objects[i].m * objects[i].vx);
+                objects[i].vx = objects[i].vx * -restitution_coefficient + (1 + restitution_coefficient) * right_edge_velocity;
+                objects[i].vy *= restitution_coefficient; 
+                accumualted_impulse += abs(objects[i].m * objects[i].vx);
+            }
+            if (hit.Y0 < 0 && objects[i].vy < 0) 
+            { 
+                accumualted_impulse += abs(objects[i].m * objects[i].vy);
+                objects[i].vy = objects[i].vy * -restitution_coefficient; //- (1 + restitution_coefficient) * bottom_edge_velocity;
+                objects[i].vx *= restitution_coefficient;  
+                accumualted_impulse += abs(objects[i].m * objects[i].vy);
+            }
+            if (hit.Y1 > window_height && objects[i].vy - bottom_edge_velocity > 0) 
+            {
+                accumualted_impulse += abs(objects[i].m * objects[i].vy);
+                objects[i].vy = objects[i].vy * -restitution_coefficient + (1 + restitution_coefficient) * bottom_edge_velocity;
+                objects[i].vx *= restitution_coefficient; objects[i].isColliding = 1;
+                accumualted_impulse += abs(objects[i].m * objects[i].vy);
+            }
             // do gravity if not colliding
             if (!objects[i].isColliding) { objects[i].vy += gravity_acceleration * deltat; }
         }
 
         curr_update++;
-
         #pragma omp parallel for
         for (int i = 0; i < NUM_BALLS; i++)
         {
@@ -422,9 +475,63 @@ int main(int argc, char* argv[])
             // limit framerate
             int milis = 1000 / MAX_FPS;
             if (dt < milis) { SDL_Delay(milis - dt); }
-            if (DO_DEBUG) printf("FPS: %f\n", (dt < milis ? MAX_FPS : 1000.0 / (double)dt));
+            if (DO_DEBUG && curr_update % (CYCLES_PER_FRAME * MAX_FPS) == 0) printf("\x1b[2JFPS: %f\n", (dt < milis ? MAX_FPS : 1000.0 / (double)dt));
             startTime = SDL_GetTicks();
         }
+
+        #ifdef DO_LOGGING
+        if ((curr_update % (CYCLES_PER_FRAME * MAX_FPS)) == 0)
+        {
+            double left_energy = 0;
+            int left_count = 0;
+            double right_energy = 1;
+            int right_count = 0;
+            for (int i = 0; i < NUM_BALLS; i++)
+            {
+                if (objects[i].cx < window_width / 2)
+                {
+                    left_energy += objects[i].m * (objects[i].vx * objects[i].vx + objects[i].vy * objects[i].vy + objects[i].cy);
+                    left_count++;
+                }
+                else
+                {
+                    right_energy += objects[i].m * (objects[i].vx * objects[i].vx + objects[i].vy * objects[i].vy);
+                    right_count++;
+                }
+            }
+            double left_chi = 0;
+            double left_mean = left_energy / left_count;
+            double right_chi = 0;
+            double right_mean = right_energy / right_count;
+            for (int i = 0; i < NUM_BALLS; i++)
+            {
+                double particle_energy = objects[i].m * (objects[i].vx * objects[i].vx + objects[i].vy * objects[i].vy);
+                if (objects[i].cx < window_width / 2)
+                {
+                     left_chi += (left_mean - particle_energy) * (left_mean - particle_energy);
+                }
+                else
+                {
+                     right_chi += (right_mean - particle_energy) * (right_mean - particle_energy);
+                }
+            }
+            
+            // delta t == 1
+            double average_pressure = accumualted_impulse / (2 * (window_width + window_height)); 
+            accumualted_impulse = 0;
+
+            puts("--------------------------------------");
+            printf("left energy: %f\n", left_energy);
+            printf("left chi: %f\n", sqrt(left_chi / left_count));
+            printf("right energy: %f\n", right_energy);
+            printf("right chi: %f\n", sqrt(right_chi / right_count));
+            printf("total energy: %f\n", left_energy + right_energy);
+            printf("average kinetic energy: %f\n", (left_energy + right_energy) / NUM_BALLS);
+            printf("average pressure: %f\n", average_pressure);
+            printf("window area: %d\n", window_width * window_height);
+            printf("P * V: %f\n", average_pressure * window_width * window_height);
+        }
+        #endif
     }
     return 0;
 }

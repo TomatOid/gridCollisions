@@ -1,11 +1,3 @@
-#include <stdlib.h>
-#include "AABB.h"
-#include "Cells.h"
-#include "Grid.h"
-#include "HashTable.h"
-#include <math.h>
-#include <stdint.h>
-#include <stdio.h>
 #ifdef _OPENMP
     #include <omp.h>
 #else
@@ -16,9 +8,18 @@
         #define omp_lock_t int
         #define omp_set_lock(lck) 0
         #define omp_unset_lock(lck) 0
+        #define omp_init_lock(lck) 0
         #define _ESCAPE_OMPENMP
     #endif
 #endif
+#include <stdlib.h>
+#include "AABB.h"
+#include "Cells.h"
+#include "Grid.h"
+#include "HashTable.h"
+#include <math.h>
+#include <stdint.h>
+#include <stdio.h>
 
 Grid* makeGrid(int width, int height, double cellSize)
 {
@@ -35,6 +36,7 @@ Grid* makeGrid(int width, int height, double cellSize)
         {
             (res->cells + i * height + j)->entry = NULL;
             (res->cells + i * height + j)->lastUpdate = -5; 
+            omp_init_lock(&(res->cells + i * height + j)->lck);
         }
     }
     return res;
