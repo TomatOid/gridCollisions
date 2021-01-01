@@ -26,7 +26,8 @@
 #include "Cells.h"
 #include "Grid.h"
 #define DO_LOGGING
-#define ISOTHERMAL_RESIZE
+//#define ISOTHERMAL_RESIZE
+#define OUTPUT_CSV
 
 Grid* mainGrid;
 SDL_Texture* GridTex;
@@ -196,8 +197,8 @@ int main(int argc, char* argv[])
         argv[0]);
         exit(0);
     }
-    printf("max_ball_size: %f\n", max_ball_size);
-    fflush(stdout);
+    //printf("max_ball_size: %f\n", max_ball_size);
+    //fflush(stdout);
     if (SDL_Init(SDL_INIT_EVERYTHING)) { printf("error."); return 0; }
 
     SDL_Window* win;
@@ -208,8 +209,8 @@ int main(int argc, char* argv[])
 
     int grid_cell_size = ceil(2.0 * max_ball_size);
     while (XRES % grid_cell_size) grid_cell_size++;
-    printf("grid_cell_size: %d\n", grid_cell_size);
-    fflush(stdout);
+    //printf("grid_cell_size: %d\n", grid_cell_size);
+    //fflush(stdout);
 
     // declare random seeds
     srand(18698238);
@@ -247,7 +248,7 @@ int main(int argc, char* argv[])
 	    // Initalize the sprites on the heap at random positions
 	    // I should really position them so they don't overlap each other,
 	    // but it'll be fine, right?
-        double r = randi(max_ball_size * 0.3, max_ball_size);
+        double r = randi(max_ball_size * 1.0, max_ball_size);
         makeBall(r, randi(r, XRES - r), randi(r, YRES - r), randi(-100, 100), randi(-100, 100), 3.14 * r * r, &objects[i], &buf[i]);
         makeBallTex(&objects[i], ren);
         if (DO_UNEQUAL && !(objects[i].cx < XRES / 2)) { objects[i].vx *= 3; objects[i].vy *= 3; }
@@ -289,6 +290,9 @@ int main(int argc, char* argv[])
     winposX2 = winposX1;
     winposX2 = winposY1;
     startTime = SDL_GetTicks();
+#ifdef OUTPUT_CSV
+    puts("left energy (rms), right energy (rms), total energy, average kinetic energy, average pressure, window area, P * V");
+#endif
     while (1)
     {
         // Check to see if the user is trying to close the program, to prevent hanging
@@ -484,23 +488,27 @@ int main(int argc, char* argv[])
         {
             double left_energy = 0;
             int left_count = 0;
-            double right_energy = 1;
+            double right_energy = 0;
             int right_count = 0;
+            double total_energy = 0;
             for (int i = 0; i < NUM_BALLS; i++)
             {
+                double particle_energy = objects[i].m * (objects[i].vx * objects[i].vx + objects[i].vy * objects[i].vy + objects[i].cy);
+                total_energy += particle_energy;
                 if (objects[i].cx < window_width / 2)
                 {
-                    left_energy += objects[i].m * (objects[i].vx * objects[i].vx + objects[i].vy * objects[i].vy + objects[i].cy);
+                    left_energy += particle_energy;
                     left_count++;
                 }
                 else
                 {
-                    right_energy += objects[i].m * (objects[i].vx * objects[i].vx + objects[i].vy * objects[i].vy);
+                    right_energy += particle_energy;
                     right_count++;
                 }
             }
+            /*
             double left_chi = 0;
-            double left_mean = left_energy / left_count;
+            double left_mean = left_energy * left_energy / left_count * left_count;
             double right_chi = 0;
             double right_mean = right_energy / right_count;
             for (int i = 0; i < NUM_BALLS; i++)
@@ -515,21 +523,32 @@ int main(int argc, char* argv[])
                      right_chi += (right_mean - particle_energy) * (right_mean - particle_energy);
                 }
             }
-            
+            */
             // delta t == 1
             double average_pressure = accumualted_impulse / (2 * (window_width + window_height)); 
             accumualted_impulse = 0;
-
+#ifndef OUTPUT_CSV
             puts("--------------------------------------");
-            printf("left energy: %f\n", left_energy);
-            printf("left chi: %f\n", sqrt(left_chi / left_count));
-            printf("right energy: %f\n", right_energy);
-            printf("right chi: %f\n", sqrt(right_chi / right_count));
-            printf("total energy: %f\n", left_energy + right_energy);
-            printf("average kinetic energy: %f\n", (left_energy + right_energy) / NUM_BALLS);
+            printf("left energy (rms): %f\n", left_energy / left_count);
+            //printf("left chi: %f\n", sqrt(left_chi / left_count));
+            printf("right energy (rms): %f\n", right_energy / right_count);
+            //printf("right chi: %f\n", sqrt(right_chi / right_count));
+            printf("total energy: %f\n", total_energy);
+            printf("average kinetic energy (rms): %f\n", (left_energy + right_energy) / NUM_BALLS);
             printf("average pressure: %f\n", average_pressure);
             printf("window area: %d\n", window_width * window_height);
             printf("P * V: %f\n", average_pressure * window_width * window_height);
+#else 
+            printf("%f, ", left_energy / left_count);
+            //printf("%f, ", sqrt(left_chi / left_count));
+            printf("%f, ", right_energy / right_count);
+            //printf("%f, ", sqrt(right_chi / left_count));
+            printf("%f, ", left_energy + right_energy);
+            printf("%f, ", (left_energy + right_energy) / NUM_BALLS);
+            printf("%f, ", average_pressure);
+            printf("%d, ", window_width * window_height);
+            printf("%f\n", average_pressure * window_width * window_height);
+#endif
         }
         #endif
     }
